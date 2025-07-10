@@ -1,0 +1,429 @@
+---
+title: "718 final project"
+author: "group 14"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+-----------------------
+# 0.data clean
+-----------------------
+
+
+# Load necessary libraries
+install.packages("tidyr")
+library(tidyr)
+library(readxl)    # Read Excel files
+library(dplyr)     # Data manipulation
+
+# ---------------------------
+# Step 1: Data Loading (Read original columns directly)
+# ---------------------------
+
+# Define the file path (note the path format)
+file_path <- "C:/r/34R.xlsx"
+
+# Read the raw data (keep all variables and original column names)
+raw_data <- readxl::read_excel(file_path)
+
+# ---------------------------
+# Step 2: Remove variables with high missing values and countries
+# ---------------------------
+
+# 1. Remove variables with a missing rate > 30%
+missing_var <- raw_data %>%
+  summarise(across(everything(), ~ mean(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "var", values_to = "missing_rate") %>%
+  filter(missing_rate > 0.3)
+
+data_clean <- raw_data %>%
+  select(-any_of(missing_var$var))
+
+# 2. Remove countries with complete missing values in core variables (assuming core variables are health expenditure and life expectancy)
+core_vars <- c("SH.XPD.GHED.GD.ZS", "SP.DYN.LE00.IN")
+data_clean <- data_clean %>%
+  group_by(Country) %>%
+  filter(!all(is.na(SH.XPD.GHED.GD.ZS)) & !all(is.na(SP.DYN.LE00.IN))) %>%
+  ungroup()
+
+# ---------------------------
+# Step 3: Mean Imputation
+# ---------------------------
+
+# Perform mean imputation on numeric variables
+num_vars <- sapply(data_clean, is.numeric)
+for (col in names(data_clean)[num_vars]) {
+  mean_val <- mean(data_clean[[col]], na.rm = TRUE)
+  data_clean[[col]][is.na(data_clean[[col]])] <- mean_val
+}
+
+# At this point, data_clean is the dataset after mean imputation
+
+# ---------------------------
+# Step 4: Saving and Verification
+# ---------------------------
+
+# Check the final missing rate
+cat("Final missing value proportion:\n")
+colMeans(is.na(data_clean)) %>% round(3) %>% print()
+
+# Save as a CSV file
+write.xlsx(data_clean, "C:/r/processed_data.xlsx", row.names = FALSE)
+
+
+--------------------------
+# 0.data standardized
+--------------------------
+
+
+# Load the necessary libraries
+library(dplyr)
+
+# Read the data file
+data_clean <- read.csv("C:\\r\\processed_data.csv")
+
+# Extract the numeric variables that need to be standardized
+numeric_cols <- names(data_clean)[sapply(data_clean, is.numeric)]
+numeric_cols <- setdiff(numeric_cols, c("Country", "Year"))  # Exclude non - numeric variables
+
+# Standardize the numeric variables
+standardized_data <- data_clean
+standardized_data[numeric_cols] <- scale(data_clean[numeric_cols])
+
+# Check the summary information of the standardized data
+summary(standardized_data)
+
+# Save the standardized data as a CSV file
+write.csv(standardized_data, "C:/r/processed_standardized_data.csv", row.names = FALSE)
+
+
+-------------------------------------------------------
+# 0.Data pre-processing and descriptive data analysis
+-------------------------------------------------------
+
+
+#Install necessary package
+install.packages("openxlsx")
+install.packages("dbscan")
+install.packages("ggplot2")
+install.packages("reshape2") 
+install.packages("lattice")  
+install.packages('caret')
+library(openxlsx)
+library(dbscan)
+library(ggplot2)
+library(reshape2)
+library(caret)
+
+
+# Import data
+data <- read.csv("C:/Users/宋灵晓/Downloads/processed_data.csv")  
+data
+
+
+# Detect missing value
+sum(is.na(data))
+
+
+data_clean <- na.omit(data)
+
+sum(is.na(data_clean))
+
+# Data format check
+check_numeric <- all(sapply(data_clean, is.numeric))
+print(check_numeric)
+str(data_clean)
+
+
+# Check and report the duplicated rows.
+duplicates <- data_clean[duplicated(data_clean), ]
+non_duplicates <- data_clean[!duplicated(data_clean), ]
+num_duplicates <- nrow(duplicates)
+num_non_duplicates <- nrow(non_duplicates)
+cat("Currently we have", num_duplicates, "duplicated rows and ", num_non_duplicates, "non-duplicated rows.\n") 
+
+# Check the data distribution trend
+summary(data_clean) 
+data_long <- melt(data_clean[, 1:12])
+ggplot(data_long, aes(x = value)) +
+  geom_density(fill = "lightblue", color = "black") +   
+  facet_wrap(~variable, scales = "free") +  
+  theme_minimal() +
+  labs(title = "Density Plot of 12 Variables", x = "Value", y = "Density")
+
+shapiro_results <- apply(data_clean, 2, function(x) {shapiro.test(x)$p.value})
+print(shapiro_results)
+
+#####boxplot
+data_long_1 <- melt(data_clean, id.vars = "Year")
+
+ggplot(data_long_1, aes(x = factor(Year), y = value)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  facet_wrap(~ variable, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Boxplots of Each Variable by Year",
+    x = "Year",
+    y = "Value"
+  )
+# calculate the correlation matrix
+
+numeric_data <- data_clean[sapply(data_clean, is.numeric)]
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+
+print(cor_matrix)
+y_cor <- cor_matrix[, "Life.expectancy.at.birth"]
+print(y_cor[order(abs(y_cor), decreasing = TRUE)])
+
+
+###
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+
+colnames(data_clean) <- make.names(colnames(data_clean))
+
+selected_vars <- c(
+  "Prevalence.of.undernourishment",
+  "health.expenditure",
+  "Carbon.dioxide..CO2..emissions.excluding.LULUCF.per.capita",
+  "Political.Stability.and.Absence.of.Violence.Terrorism..Estimate",
+  "PM2.5.air.pollution..mean.annual.exposure",
+  "Life.expectancy.at.birth"
+)
+
+
+long_data <- data_clean %>%
+  select(all_of(selected_vars)) %>%
+  pivot_longer(
+    cols = -Life.expectancy.at.birth,
+    names_to = "Variable",
+    values_to = "X"
+  )
+
+
+ggplot(long_data, aes(x = X, y = Life.expectancy.at.birth)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
+  facet_wrap(~ Variable, scales = "free_x") +
+  theme_minimal() +
+  labs(
+    title = "Scatter Plots of Top 5 Correlated Variables vs Life Expectancy",
+    x = "Variable Value",
+    y = "Life Expectancy at Birth"
+  )
+
+
+# Load necessary packages
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(patchwork)  # For multi-plot layout
+
+# Read data
+data <- read_csv("C:/r/data final.csv") %>% 
+  select(
+    country, year,
+    life_expectancy,
+    health_expenditure,
+    gdp,
+    undernourishment_prevalence,
+    political_stability,
+    pm25_pollution,
+    co2_emissions
+  ) %>% 
+  drop_na()
+
+# ---------------------------
+# 1. Define Bayesian multilevel model (with variable-specific priors)
+# ---------------------------
+prior_list <- c(
+  # Fixed effect priors (based on provided prior files)
+  prior(normal(0.08, 0.05), class = "b", coef = "health_expenditure"),
+  prior(normal(0.07, 0.15), class = "b", coef = "gdp"),
+  prior(normal(-0.20, 0.10), class = "b", coef = "pm25_pollution"),
+  prior(normal(-0.25, 0.10), class = "b", coef = "co2_emissions"),
+  prior(normal(0.05, 0.05), class = "b", coef = "political_stability"),
+  prior(normal(-0.3, 0.1), class = "b", coef = "undernourishment_prevalence"),
+  
+  # Random effect priors
+  prior(exponential(1), class = "sd")
+)
+
+formula <- life_expectancy ~ 
+  health_expenditure + gdp + undernourishment_prevalence + 
+  political_stability + pm25_pollution + co2_emissions + 
+  (1 | country)
+
+# ---------------------------
+# 2. Random K-fold cross-validation (original logic maintained)
+# ---------------------------
+K <- 5
+set.seed(123)
+folds <- sample(rep(1:K, length.out = nrow(data)))
+
+rmse_values <- numeric(K)
+
+for (k in 1:K) {
+  tryCatch({
+    train_data <- data[folds != k, ]
+    test_data <- data[folds == k, ]
+    
+    model <- brm(
+      formula,
+      data = train_data,
+      prior = prior_list,
+      chains = 2,
+      iter = 2000,
+      warmup = 500,
+      cores = 2,
+      control = list(adapt_delta = 0.95),
+      silent = 2
+    )
+    
+    pred <- predict(model, newdata = test_data)[, "Estimate"]
+    rmse_values[k] <- sqrt(mean((test_data$life_expectancy - pred)^2))
+    cat("Fold", k, "completed, RMSE:", round(rmse_values[k], 3), "\n")
+    
+  }, error = function(e) {
+    cat("Fold", k, "failed:", e$message, "\n")
+    rmse_values[k] <- NA
+  })
+}
+
+# Cross-validation results visualization
+cv_plot <- data.frame(Fold = 1:K, RMSE = rmse_values) %>%
+  ggplot(aes(x = factor(Fold), y = RMSE)) +
+  geom_col(fill = "steelblue", alpha = 0.8) +
+  geom_text(aes(label = round(RMSE, 2)), vjust = -0.5) +
+  labs(x = "Fold", y = "RMSE", title = "5-Fold Cross-Validation Results") +
+  ylim(0, max(rmse_values, na.rm = TRUE)*1.1)
+
+print(cv_plot)
+
+# ---------------------------
+# 3. Full data model fitting and diagnostics
+# ---------------------------
+final_model <- brm(
+  formula,
+  data = data,
+  prior = prior_list,
+  chains = 4,
+  iter = 3000,
+  warmup = 1000,
+  cores = 4,
+  control = list(adapt_delta = 0.99)
+)
+
+cat("Model Summary:\n")
+print(summary(final_model, prob = 0.95))
+
+# ---------------------------
+# Model diagnostics plots
+# ---------------------------
+# Extract parameters starting with b_
+b_params <- names(posterior_samples(final_model))[grepl("^b_", names(posterior_samples(final_model)))]
+
+# Plot parameter trace
+diagnostic_plot <- plot(final_model, variable = b_params, main = "Parameter Trace Plots")
+
+#  Predicted vs Actual Plot
+data$predicted <- predict(final_model)[, "Estimate"]
+pred_vs_actual_plot <- ggplot(data, aes(x = life_expectancy, y = predicted)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(
+    x = "Actual Life Expectancy", 
+    y = "Predicted Life Expectancy",
+    title = "Model Fit: Predicted vs Actual Values"
+  ) +
+  theme_minimal()
+
+print(pred_vs_actual_plot)
+
+
+# ---------------------------
+# 4. Results visualization
+# ---------------------------
+# Posterior distribution of fixed effects
+# Extract posterior samples of fixed effects
+fixed_effect_samples <- posterior_samples(final_model)[, b_params]
+
+# Convert data to long format for ggplot2
+library(tidyr)
+fixed_effect_samples_long <- pivot_longer(as.data.frame(fixed_effect_samples), cols = everything(), 
+                                          names_to = "parameter", values_to = "value")
+
+# Plot the posterior distribution of fixed effects
+fixed_effect_plot <- ggplot(fixed_effect_samples_long, aes(x = value)) +
+  geom_histogram(fill = "steelblue", bins = 30, alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~parameter, scales = "free") +
+  ggtitle("Posterior Distribution of Fixed Effects (95% CI)") +
+  xlab("Parameter Value") +
+  ylab("Frequency")
+
+print(fixed_effect_plot)
+
+
+# Random intercept distribution
+ranef_plot <- ranef(final_model)$country %>% 
+  as.data.frame() %>% 
+  ggplot(aes(x = Estimate.Intercept)) +
+  geom_histogram(fill = "steelblue", bins = 30, alpha = 0.8) +
+  labs(x = "Random Intercept Value", y = "Frequency", 
+       title = "Distribution of Country Random Intercepts")
+
+print(ranef_plot)
+
+
+# Combine all plots
+final_plot <- (fixed_effect_plot | ranef_plot) / cv_plot
+ggsave("analysis_results.png", final_plot, width = 14, height = 10)
+
+print(final_plot)
+
+# ---------------------------
+# 5. Forest Plot (Fixed Effects with Credible Intervals)
+# ---------------------------
+
+fixed_effects <- fixef(final_model, probs = c(0.025, 0.975)) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Variable") %>% 
+  filter(Variable != "Intercept") 
+
+forest_plot <- ggplot(fixed_effects, aes(x = Variable, y = Estimate)) +
+  geom_pointrange(aes(ymin = Q2.5, ymax = Q97.5), color = "steelblue", size = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +  
+  labs(
+    x = "Predictors", 
+    y = "Coefficient Estimate (95% CI)",
+    title = "Forest Plot of Fixed Effects"
+  ) +
+  theme_minimal()
+
+print(forest_plot)
+
+# ---------------------------
+# 6. Bayesian Regression Summary Table
+# ---------------------------
+library(gt)
+
+results_table <- fixef(final_model, probs = c(0.025, 0.975)) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Variable") %>% 
+  gt() %>% 
+  fmt_number(columns = c("Estimate", "Q2.5", "Q97.5"), decimals = 3) %>% 
+  cols_label(
+    Estimate = "Posterior Mean",
+    Q2.5 = "95% CI Lower",
+    Q97.5 = "95% CI Upper"
+  ) %>% 
+  tab_header(title = "Bayesian Regression Summary Table")
+
+gtsave(results_table, "C:/r/results/regression_table.png")  
